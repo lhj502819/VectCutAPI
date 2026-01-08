@@ -88,18 +88,27 @@ def save_draft_background(draft_id, draft_folder, task_id):
             shutil.rmtree(draft_id)
 
         logger.info(f"Starting to save draft: {draft_id}")
+
+        # 确保脚本有有效的fps和duration属性，在duplicate_as_template之前
+        if not hasattr(script, 'fps') or script.fps is None:
+            script.fps = 30
+            logger.info(f"设置脚本fps为默认值: 30")
+        if not hasattr(script, 'duration') or script.duration is None:
+            script.duration = 0
+            logger.info(f"设置脚本duration为默认值: 0")
+
         # Save draft
         current_dir = os.path.dirname(os.path.abspath(__file__))
         draft_folder_for_duplicate = draft.Draft_folder(current_dir)
         # Choose different template directory based on configuration
         template_dir = "template" if IS_CAPCUT_ENV else "template_jianying"
         draft_folder_for_duplicate.duplicate_as_template(template_dir, draft_id)
-        
+
         # Update task status
         update_task_field(task_id, "message", "Updating media file metadata")
         update_task_field(task_id, "progress", 5)
         logger.info(f"Task {task_id} progress 5%: Updating media file metadata.")
-        
+
         update_media_metadata(script, task_id)
         
         download_tasks = []
@@ -292,12 +301,22 @@ def save_draft_impl(draft_id: str, draft_folder: str = None) -> Dict[str, str]:
 
 def update_media_metadata(script, task_id=None):
     """
-    Update metadata for all media files in the script (duration, width/height, etc.)
-    
-    :param script: Draft script object
-    :param task_id: Optional task ID for updating task status
+    更新脚本的所有媒体文件元数据，确保脚本有有效的fps和duration属性
+
+    :param script: 草稿脚本对象
+    :param task_id: 可选的任务ID，用于更新任务状态
     :return: None
     """
+    # 确保脚本有 fps 属性（默认值为 30）
+    if not hasattr(script, 'fps') or script.fps is None:
+        script.fps = 30
+        logger.info(f"设置脚本fps为默认值: 30")
+
+    # 确保脚本有 duration 属性（默认值为 0）
+    if not hasattr(script, 'duration') or script.duration is None:
+        script.duration = 0
+        logger.info(f"设置脚本duration为默认值: 0")
+
     # Process audio file metadata
     audios = script.materials.audios
     if not audios:
@@ -349,25 +368,27 @@ def update_media_metadata(script, task_id=None):
                                 if isinstance(segment, draft.Audio_segment) and segment.material_id == audio.material_id:
                                     # Get current settings
                                     current_target = segment.target_timerange
-                                    current_source = segment.source_timerange
                                     speed = segment.speed.speed
-                                    
-                                    # If the end time of source_timerange exceeds the new audio duration, adjust it
-                                    if current_source.end > audio.duration or current_source.end <= 0:
-                                        # Adjust source_timerange to fit the new audio duration
-                                        new_source_duration = audio.duration - current_source.start
-                                        if new_source_duration <= 0:
-                                            logger.warning(f"Warning: Audio segment {segment.segment_id} start time {current_source.start} exceeds audio duration {audio.duration}, will skip this segment.")
-                                            continue
-                                            
-                                        # Update source_timerange
-                                        segment.source_timerange = draft.Timerange(current_source.start, new_source_duration)
-                                        
-                                        # Update target_timerange based on new source_timerange and speed
-                                        new_target_duration = int(new_source_duration / speed)
+
+                                    # 重要：音频片段的 source_timerange 应该总是使用完整的音频文件
+                                    # source_timerange 是从音频源文件中提取的时间范围（应该是 0 到音频的实际时长）
+                                    # target_timerange 是音频在最终视频中的播放位置（应该是累积时间）
+
+                                    # 根据 target_timerange 的时长计算应该从源文件中提取的时长
+                                    target_duration = current_target.duration
+                                    source_duration = target_duration  # 假设 speed = 1.0
+
+                                    # 如果源时长超过实际音频时长，调整 target_timerange
+                                    if source_duration > audio.duration:
+                                        logger.warning(f"Warning: Audio segment {segment.segment_id} requires {source_duration} microseconds but audio only has {audio.duration} microseconds. Adjusting target duration.")
+                                        source_duration = audio.duration
+                                        new_target_duration = int(source_duration / speed)
                                         segment.target_timerange = draft.Timerange(current_target.start, new_target_duration)
-                                        
-                                        logger.info(f"Adjusted audio segment {segment.segment_id} timerange to fit the new audio duration.")
+
+                                    # 设置 source_timerange 为整个音频文件
+                                    segment.source_timerange = draft.Timerange(0, audio.duration)
+
+                                    logger.info(f"Set audio segment {segment.segment_id} source_timerange to use full audio file (0 to {audio.duration} microseconds).")
                 else:
                     logger.warning(f"Warning: Unable to get audio {material_name} duration: {duration_result['error']}.")
             except Exception as e:

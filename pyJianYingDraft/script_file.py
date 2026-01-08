@@ -227,6 +227,12 @@ class Script_file:
         util.assign_attr_with_json(obj, ["fps", "duration"], obj.content)
         util.assign_attr_with_json(obj, ["width", "height"], obj.content["canvas_config"])
 
+        # 确保fps和duration有有效的值，如果缺失则使用默认值
+        if not hasattr(obj, 'fps') or obj.fps is None:
+            obj.fps = 30
+        if not hasattr(obj, 'duration') or obj.duration is None:
+            obj.duration = 0
+
         obj.imported_materials = deepcopy(obj.content["materials"])
         obj.imported_tracks = [import_track(track_data, obj.imported_materials) for track_data in obj.content["tracks"]]
 

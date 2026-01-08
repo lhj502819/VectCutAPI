@@ -32,6 +32,7 @@ def assign_attr_with_json(obj: object, attrs: List[str], json_data: Dict[str, An
     """根据json数据赋值给指定的对象属性
 
     若有复杂类型，则尝试调用其`import_json`方法进行构造
+    如果json数据中缺少属性，则跳过该属性的赋值
     """
     type_hints: Dict[str, Type] = {}
     for cls in obj.__class__.__mro__:
@@ -39,10 +40,19 @@ def assign_attr_with_json(obj: object, attrs: List[str], json_data: Dict[str, An
             type_hints.update(cls.__annotations__)
 
     for attr in attrs:
-        if hasattr(type_hints[attr], 'import_json'):
-            obj.__setattr__(attr, type_hints[attr].import_json(json_data[attr]))
+        # 如果json_data中没有该属性，跳过赋值
+        if attr not in json_data:
+            continue
+
+        # 如果type_hints中有该属性，使用类型进行转换；否则直接设置值
+        if attr in type_hints:
+            if hasattr(type_hints[attr], 'import_json'):
+                obj.__setattr__(attr, type_hints[attr].import_json(json_data[attr]))
+            else:
+                obj.__setattr__(attr, type_hints[attr](json_data[attr]))
         else:
-            obj.__setattr__(attr, type_hints[attr](json_data[attr]))
+            # 当type_hints中没有该属性时，直接设置值
+            obj.__setattr__(attr, json_data[attr])
 
 def export_attr_to_json(obj: object, attrs: List[str]) -> Dict[str, JsonExportable]:
     """将对象属性导出为json数据
